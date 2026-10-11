@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your order</title>
+<style>
+  :root { --bg:#f6f4f1; --ink:#1d1d1f; --mute:#6b6b70; --brand:#e8452c; --ok:#1f9d55; }
+  * { box-sizing: border-box; }
+  html, body { height:100%; margin:0; }
+  body { font-family: system-ui, sans-serif; background:var(--bg); color:var(--ink); display:flex; align-items:center; justify-content:center; text-align:center; padding:24px; transition: background .3s; }
+  body.ready { background:var(--ok); color:#fff; animation: flash 0.8s infinite alternate; }
+  @keyframes flash { from { background:#1f9d55 } to { background:#2bc46f } }
+  .wrap { max-width:360px; width:100%; }
+  .label { color:var(--mute); font-size:14px; letter-spacing:.08em; text-transform:uppercase; }
+  body.ready .label { color:#d9f3e3; }
+  .num { font-size:96px; font-weight:800; line-height:1.1; margin:8px 0; }
+  .msg { font-size:20px; margin:12px 0 28px; }
+  button { font:inherit; font-weight:700; border:0; border-radius:14px; padding:16px 24px; width:100%; background:var(--brand); color:#fff; font-size:18px; }
+  body.ready button { background:#fff; color:var(--ok); }
+  .hint { margin-top:16px; font-size:13px; color:var(--mute); }
+  body.ready .hint { color:#d9f3e3; }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="label">Your order number</div>
+  <div class="num" id="num">–</div>
+  <div class="msg" id="msg">Connecting…</div>
+  <button id="enable">Enable alerts</button>
+  <button id="stop" class="hidden">Dismiss</button>
+  <div class="hint" id="hint">Tap once so your phone can vibrate and play a sound. Keep this page open.</div>
+</div>
+<script>
+const token = location.pathname.split('/').pop();
+const $ = (id) => document.getElementById(id);
+let audioCtx = null, wakeLock = null, alertTimer = null, armed = false, currentStatus = null;
+
+function beep() {
+  if (!audioCtx) return;
+  const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+  o.type = 'sine'; o.frequency.value = 880;
+  g.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.6, audioCtx.currentTime + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.35);
+  o.connect(g).connect(audioCtx.destination);
+  o.start(); o.stop(audioCtx.currentTime + 0.4);
+}
+
+function startAlert() {
+  stopAlert();
+  const fire = () => { if (navigator.vibrate) navigator.vibrate([400, 150, 400, 150, 400]); beep(); };
+  fire();
+  alertTimer = setInterval(fire, 2500);
+  $('stop').classList.remove('hidden');
+}
+function stopAlert() {
+  clearInterval(alertTimer); alertTimer = null;
+  if (navigator.vibrate) navigator.vibrate(0);
+}
+
+async function keepAwake() {
+  try { wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
+}
+document.addEventListener('visibilitychange', () => { if (armed && document.visibilityState === 'visible') keepAwake(); });
+
+$('enable').onclick = async () => {
+  audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+  await audioCtx.resume();
+  beep();
+  if (navigator.vibrate) navigator.vibrate(120);
+  keepAwake();
+  armed = true;
+  $('enable').classList.add('hidden');
+  $('hint').textContent = 'Alerts on. Keep this page open and the screen on.';
+  if (currentStatus === 'ready') startAlert();
+};
+$('stop').onclick = () => { stopAlert(); $('stop').classList.add('hidden'); };
+
+function render(d) {
+  currentStatus = d.status;
+  $('num').textContent = '#' + d.number;
+  document.body.classList.toggle('ready', d.status === 'ready');
+  if (d.status === 'preparing') {
+    $('msg').textContent = 'We are preparing your order…';
+  } else if (d.status === 'ready') {
+    $('msg').textContent = 'Your order is ready! Please collect it.';
+    if (armed) startAlert();
+  } else {
+    stopAlert();
+    $('stop').classList.add('hidden');
+    $('msg').textContent = 'Order collected. Thank you!';
+  }
+}
+
+function connect() {
+  const es = new EventSource(`/api/orders/${token}/stream`);
+  es.onmessage = (e) => render(JSON.parse(e.data));
+  es.onerror = () => { $('msg').textContent = 'Reconnecting…'; };
+}
+connect();
+</script>
+</body>
+</html>
