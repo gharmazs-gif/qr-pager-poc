@@ -15,7 +15,7 @@ function lanIp() {
   return 'localhost';
 }
 // Set PUBLIC_URL (e.g. an ngrok/Cloudflare tunnel URL) if phones are not on the same Wi-Fi.
-const BASE_URL = process.env.PUBLIC_URL || `http://${lanIp()}:${PORT}`;
+const BASE_URL = (process.env.PUBLIC_URL || 'https://qr-pager-poc.onrender.com').replace(/\/+$/, '');
 
 const orders = new Map();      // token -> { token, number, status, createdAt }
 const listeners = new Map();   // token -> Set<res>
